@@ -1,0 +1,12 @@
+435b19be3b7b0f167b0110da2e95b949 *DESCRIPTION
+13f15d321c0226889b52fab78cd06d1d *NAMESPACE
+178b0c36be2660795d6ce2ae2b89aff3 *R/data.R
+e9c258123a5d396461399830e2056145 *R/smoothic_functions.R
+4ff36875fbe499eae99d4672fc6c47ab *data/bostonhouseprice.RData
+81f2fa71f9cd91b2985b4fb099380ea4 *data/pcancer.RData
+9d557aa0f7c90459ca4c0df5c352b1f7 *data/sniffer.RData
+a6f5d419dda62a2798d257466424858c *man/bostonhouseprice.Rd
+bbf6caf4a006aa1965ad887c2c7ec4b9 *man/pcancer.Rd
+fa20ccd7c7b18881f1477e87a443af2f *man/smoothic.Rd
+9207468a33224c8e0d1cde290539ed3c *man/sniffer.Rd
+f5f4d2ba5d159d7ddd3a093e9a4ab974 *man/summary.smoothic.Rd
