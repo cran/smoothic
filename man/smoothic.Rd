@@ -7,16 +7,18 @@
 smoothic(
   formula,
   data,
+  family = "sgnd",
   model = "mpr",
   lambda = "log(n)",
   epsilon_1 = 10,
-  epsilon_T = 1e-05,
+  epsilon_T = 1e-04,
   steps_T = 100,
-  zero_tol = 1e-08,
-  tol = 1e-08,
+  zero_tol = 1e-05,
   max_it = 10000,
-  initial_step = 10,
-  max_step_it = 1000
+  optimizer = "nlm",
+  kappa,
+  tau,
+  stepmax_nlm
 )
 }
 \arguments{
@@ -25,6 +27,12 @@ with response on the left hand side and the model variables on the right hand si
 
 \item{data}{A data frame containing the variables in the model; the data frame
 should be unstandardized.}
+
+\item{family}{The family of the model, default is \code{family = "sgnd"} for the
+"Smooth Generalized Distribution" where the shape parameter kappa is also
+estimated. Classical regression with normally distributed errors is performed
+when \code{family = "normal"}. If \code{family = "laplace"}, this corresponds to
+a robust regression with errors from the Laplace distribution.}
 
 \item{model}{The type of regression to be implemented, either \code{model = "mpr"}
 for multi-parameter regression, or \code{model = "spr"} for single parameter
@@ -37,24 +45,37 @@ regression (i.e., classical normal linear regression). Defaults to \code{model="
 \item{epsilon_1}{Starting value for \eqn{\epsilon}-telescope. Defaults to 10.}
 
 \item{epsilon_T}{Final value for \eqn{\epsilon}-telescope. Defaults to
-\code{1e-05}.}
+\code{1e-04}.}
 
 \item{steps_T}{Number of steps in \eqn{\epsilon}-telescope. Defaults to 100.}
 
 \item{zero_tol}{Coefficients below this value are treated as being zero.
-Defaults to \code{1e-08}.}
+Defaults to \code{1e-05}.}
 
-\item{tol}{Convergence tolerance for the optimization. Defaults to
-\code{1e-08}.}
-
-\item{max_it}{Maximum number of iterations to performed before the
+\item{max_it}{Maximum number of iterations to be performed before the
 optimization is terminated. Defaults to \code{1e+04}.}
 
-\item{initial_step}{Initial step length for step halving in Newton-Raphson
-algorithm. Defaults to 10.}
+\item{optimizer}{The optimization procedure to be used. Defaults to
+\code{optimizer = "nlm"}, where the \code{\link{nlm}} function from the
+\bold{stats} package is used. This tends to be more stable than the manually
+ coded Newton-Raphson procedure that is used when \code{optimizer = "manual"}.}
 
-\item{max_step_it}{Maximum allowable number of steps to take for step
-halving in Newton-Raphson algorithm. Defaults to \code{1e+03}.}
+\item{kappa}{Optional user-supplied positive kappa value (> 0.2 to avoid
+computational issues) if \code{family = "sgnd"}. If supplied, the shape parameter
+kappa will be fixed to this value in the optimization. If not supplied, kappa is
+estimated from the data.}
+
+\item{tau}{Optional user-supplied positive smoothing parameter value in the
+"Smooth Generalized Normal Distribution" if \code{family = "sgnd"} or
+\code{family = "laplace"}. If not supplied, then \code{tau = "0.15"}.
+Smaller values of \code{tau} bring the approximation closer to the absolute value
+function, but this can cause the optimization to become unstable. Some issues with
+standard error calculation with smaller values of \code{tau} when using the Laplace
+distribution in the robust regression setting.}
+
+\item{stepmax_nlm}{Optional maximum allowable scaled step length (positive scalar) to be passed to
+\code{\link{nlm}} if \code{optimizer = "nlm"}. If not supplied, default values in
+\code{\link{nlm}} are used.}
 }
 \value{
 A list with estimates and estimated standard errors.
@@ -63,6 +84,7 @@ A list with estimates and estimated standard errors.
   \item \code{see} - vector of estimated standard errors.
   \item \code{model} - the matched type of model which is called.
   \item \code{plike} - value of the penalized likelihood function.
+  \item \code{kappa} - value of the estimated/fixed shape parameter kappa if \code{family = "sgnd"}.
   }
 }
 \description{
@@ -78,14 +100,17 @@ the final estimates are converted back to their original scale.
 results <- smoothic(
   formula = y ~ .,
   data = sniffer,
+  family = "normal",
   model = "mpr"
 )
 summary(results)
-
 }
 \references{
 O'Neill, M. and Burke, K. (2021) Variable Selection Using a Smooth
 Information Criterion for Multi-Parameter Regression Models. <arXiv:2110.02643>
+
+O'Neill, M. and Burke, K. (2022) Robust Distributional Regression with
+Automatic Variable Selection. <arXiv:2212.07317>
 }
 \author{
 Meadhbh O'Neill

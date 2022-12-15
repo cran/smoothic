@@ -3,7 +3,7 @@
 \docType{data}
 \name{bostonhouseprice}
 \alias{bostonhouseprice}
-\title{Boston House Price Data}
+\title{Boston House Price Data (Original)}
 \format{
 A data frame with 506 rows and 9 variables:
 \describe{
@@ -11,7 +11,7 @@ A data frame with 506 rows and 9 variables:
    \item{rooms}{average number of rooms per house}
    \item{radial}{index of accessibility to radial highways}
    \item{stratio}{average student-teacher ratio of schools in the community}
-   \item{lowstat}{percentge of the population that are "lower status"}
+   \item{lowstat}{percentage of the population that are "lower status"}
    \item{lnox}{log(annual average nitrogen oxide concentration (pphm))}
    \item{lproptax}{log(property tax per $1000)}
    \item{ldist}{log(weighted distances to five employment centres in the Boston region)}
@@ -25,9 +25,10 @@ A data frame with 506 rows and 9 variables:
 bostonhouseprice
 }
 \description{
-Data, which come from a study by Harrison Jr and Rubinfeld (1978), examining
+Original data, which come from a study by Harrison Jr and Rubinfeld (1978), examining
 the association between median house prices in a particular community with
-various community characteristics.
+various community characteristics. See \code{\link{bostonhouseprice2}}
+for the corrected version, with additional variables.
 }
 \references{
 Harrison Jr, D. and Rubinfeld, D. L. (1978). Hedonic housing prices and the
