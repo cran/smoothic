@@ -2,7 +2,7 @@
 #'
 #' Data, which come from a study by Stamey et al. (1989), examining the
 #' correlation between the level of prostate-specific antigen (PSA) and
-#' various clinical measures in men who were about the receive a radical prostatectomy.
+#' various clinical measures in men who were about to receive a radical prostatectomy.
 #'
 #' @format A data frame with 97 rows and 9 variables:
 #' \describe{
@@ -43,6 +43,9 @@
 #' @source \url{https://CRAN.R-project.org/package=alr4}
 #'
 #' @references
+#' Bedrick, E.J. (2000). Checking for lack of fit in linear models with parametric
+#' variance functions. Technometrics 42 (3), 226–236.
+#'
 #' Weisberg, S. (2014). Applied Linear Regression, 4th edition. Hoboken NJ: Wiley.
 "sniffer"
 
@@ -135,3 +138,32 @@
 #' Efron, B., Hastie, T., Johnstone, I., Tibshirani, R., et al. (2004).
 #' Least angle regression. The Annals of Statistics.
 "diabetes"
+
+#' City Crime Data
+#'
+#' Data relating to crime rates per one million residents in 50 U.S cities, taken
+#' from Thomas (1990).
+#'
+#' @format A data frame with 50 rows and 7 variables:
+#' \describe{
+#'   \item{violent}{reported violent crime rate per 100,000 residents}
+#'   \item{funding}{annual police funding per resident ($)}
+#'   \item{hs}{percentage of people 25 years+ with 4 years of high school}
+#'   \item{not_hs}{percentage of 16 to 19 year-olds not in high school and not high school graduates}
+#'   \item{college}{percentage of 18 to 24 year-olds in college}
+#'   \item{college4}{percentage of people 25 years+ with at least 4 years of college}
+#'   \item{crime_rate}{total overall reported crime rate per 1 million residents}
+#'   }
+#'
+#' @source \url{https://hastie.su.domains/StatLearnSparsity_files/DATA/crime.txt}
+#'
+#' @references
+#' Thomas, G.S., 1990. The Rating Guide to Life in America's Small Cities.
+#' Prometheus Books, 59 John Glenn Drive, Amherst, NY 14228-2197.
+#'
+#' Hastie, T., Tibshirani, R. and Wainwright, M., 2015.
+#' Statistical learning with sparsity: the lasso and generalizations. CRC press.
+"citycrime"
+
+
+

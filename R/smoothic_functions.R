@@ -1,8 +1,8 @@
 #' @title Variable Selection Using a Smooth Information Criterion (SIC)
 #'
 #' @description Implements the SIC \eqn{\epsilon}-telescope method, either using
-#' single or multi-parameter regression. Returns estimated coefficients, estimated
-#' standard errors (SEE) and the value of the penalized likelihood function.
+#' single or multiparameter regression. Returns estimated coefficients, estimated
+#' standard errors and the value of the penalized likelihood function.
 #' Note that the function will scale the predictors to have unit variance, however,
 #' the final estimates are converted back to their original scale.
 #'
@@ -12,43 +12,45 @@
 #' @param data A data frame containing the variables in the model; the data frame
 #' should be unstandardized.
 #' @param family The family of the model, default is \code{family = "sgnd"} for the
-#' "Smooth Generalized Distribution" where the shape parameter kappa is also
+#' "Smooth Generalized Normal Distribution" where the shape parameter kappa is also
 #' estimated. Classical regression with normally distributed errors is performed
 #' when \code{family = "normal"}. If \code{family = "laplace"}, this corresponds to
-#' a robust regression with errors from the Laplace distribution.
+#' a robust regression with errors from a Laplace-like distribution. If \code{family = "laplace"},
+#' then the default value of \code{tau = 0.15}, which is used to approximate the absolute value
+#' in the Laplace density function.
 #' @param model The type of regression to be implemented, either \code{model = "mpr"}
-#' for multi-parameter regression, or \code{model = "spr"} for single parameter
-#' regression (i.e., classical normal linear regression). Defaults to \code{model="mpr"}.
+#' for multiparameter regression (i.e., location and scale), or \code{model = "spr"} for single parameter
+#' regression (i.e., location only). Defaults to \code{model="mpr"}.
 #' @param lambda Value of penalty tuning parameter. Suggested values are
 #' \code{"log(n)"} and \code{"2"} for the BIC and AIC respectively. Defaults to
-#' \code{lambda ="log(n)"} for the BIC case.
+#' \code{lambda ="log(n)"} for the BIC case. This is evaluated as an R expression, so it may
+#' be a number of some function of \code{n}.
 #' @param epsilon_1 Starting value for \eqn{\epsilon}-telescope. Defaults to 10.
 #' @param epsilon_T Final value for \eqn{\epsilon}-telescope. Defaults to
 #' \code{1e-04}.
-#' @param steps_T Number of steps in \eqn{\epsilon}-telescope. Defaults to 100.
+#' @param steps_T Number of steps in \eqn{\epsilon}-telescope. Defaults to 100, must be
+#' greater than or equal to 10.
 #' @param zero_tol Coefficients below this value are treated as being zero.
 #' Defaults to \code{1e-05}.
 #' @param max_it Maximum number of iterations to be performed before the
 #' optimization is terminated. Defaults to \code{1e+04}.
-#' @param optimizer The optimization procedure to be used. Defaults to
-#' \code{optimizer = "nlm"}, where the \code{\link{nlm}} function from the
-#' \bold{stats} package is used. This tends to be more stable than the manually
-#'  coded Newton-Raphson procedure that is used when \code{optimizer = "manual"}.
 #' @param kappa Optional user-supplied positive kappa value (> 0.2 to avoid
 #' computational issues) if \code{family = "sgnd"}. If supplied, the shape parameter
 #' kappa will be fixed to this value in the optimization. If not supplied, kappa is
 #' estimated from the data.
 #' @param tau Optional user-supplied positive smoothing parameter value in the
 #' "Smooth Generalized Normal Distribution" if \code{family = "sgnd"} or
-#' \code{family = "laplace"}. If not supplied, then \code{tau = "0.15"}.
-#' Smaller values of \code{tau} bring the approximation closer to the absolute value
-#' function, but this can cause the optimization to become unstable. Some issues with
-#' standard error calculation with smaller values of \code{tau} when using the Laplace
-#' distribution in the robust regression setting.
-#' @param max_it_vec Optional vector of length \code{steps_T} that contains the maximum number of iterations to be performed in each \eqn{\epsilon}-telescope
-#' step. If not supplied, \code{max_it} is the maximum number of iterations performed at each step.
+#' \code{family = "laplace"}. If not supplied then \code{tau = 0.15}. If \code{family = "normal"}
+#' then \code{tau = 0} is used. Smaller values of \code{tau} bring the approximation closer to the
+#' absolute value function, but this can cause the optimization to become unstable. Some issues with
+#' standard error calculation with smaller values of \code{tau} when using the Laplace distribution in
+#' the robust regression setting.
+#' @param max_it_vec Optional vector of length \code{steps_T} that contains the maximum number of
+#' iterations to be performed in each \eqn{\epsilon}-telescope step. If not supplied, \code{max_it}
+#' is the maximum number of iterations performed for 10 steps and then the maximum number of iterations
+#' to be performed reduces to 10 for the remainder of the telescope.
 #' @param stepmax_nlm Optional maximum allowable scaled step length (positive scalar) to be passed to
-#' \code{\link{nlm}} if \code{optimizer = "nlm"}. If not supplied, default values in
+#' \code{\link{nlm}}. If not supplied, default values in
 #' \code{\link{nlm}} are used.
 #'
 #'
@@ -63,8 +65,8 @@
 #'
 #' @author Meadhbh O'Neill
 #'
-#' @references O'Neill, M. and Burke, K. (2021) Variable Selection Using a Smooth
-#' Information Criterion for Multi-Parameter Regression Models. <arXiv:2110.02643>
+#' @references O'Neill, M. and Burke, K. (2023) Variable selection using a smooth information
+#' criterion for distributional regression models. <doi:10.1007/s11222-023-10204-8>
 #'
 #' O'Neill, M. and Burke, K. (2022) Robust Distributional Regression with
 #' Automatic Variable Selection. <arXiv:2212.07317>
@@ -95,12 +97,10 @@ smoothic <- function(formula,
                      steps_T = 100,
                      zero_tol = 1e-5,
                      max_it = 1e4,
-                     optimizer = "nlm",
                      kappa, # if missing then it is estimated
                      tau, # if missing and sgnd then set to 0.15
                      max_it_vec, # if missing then uses max_it for each step in the telescope
                      stepmax_nlm # if missing then uses nlm defaults
-
 ) {
   cl <- match.call()
 
@@ -164,30 +164,36 @@ smoothic <- function(formula,
   p2 <- ncol(x2) - 1
   p3 <- ncol(x3) - 1
 
+  optimizer <- "nlm"
+
 
   # Inputs ----
-  if(!missing(stepmax_nlm)) {
+  if (!missing(stepmax_nlm)) {
     if (!(stepmax_nlm > 0)) {
       stop("Error: stepmax_nlm must be a positive scalar")
     }
   }
 
-  if(missing(stepmax_nlm)) { # if not supplied, then set to NA so default values are used in nlm function
+  if (missing(stepmax_nlm)) { # if not supplied, then set to NA so default values are used in nlm function
     stepmax_nlm <- NA
   }
 
-  if(!missing(max_it_vec)) {
+  if (steps_T < 10) {
+    stop("Error: steps_T must be greater than 10")
+  }
+
+  if (!missing(max_it_vec)) {
     if (!(length(max_it_vec) == steps_T)) {
       stop("Error: max_it_vec vector must be same length as steps_T")
     }
   }
 
-  if(missing(max_it_vec)) {
-    max_it_vec <- c(rep(max_it, times = 10), rep(5, times = steps_T - 10)) # less steps as go through telescope
+  if (missing(max_it_vec)) {
+    max_it_vec <- c(rep(max_it, times = 10), rep(10, times = steps_T - 10)) # less steps as go through telescope
   }
 
 
-  if(!(family %in% c("old_normal", "normal", "laplace", "sgnd"))){
+  if (!(family %in% c("old_normal", "normal", "laplace", "sgnd"))) {
     stop("Error: please choose a family from 'normal', 'laplace' or 'sgnd'")
   }
 
@@ -206,17 +212,19 @@ smoothic <- function(formula,
 
   # If family == "normal" then use "basic" original coding method ----
   if (family == "old_normal") {
-    fit_mat <- fitting_func_normal(x1 = x1,
-                                   x2 = x2,
-                                   y = y,
-                                   optimizer = optimizer,
-                                   epsilon_1 = epsilon_1,
-                                   epsilon_T = epsilon_T,
-                                   steps_T = steps_T,
-                                   lambda_beta = lambda,
-                                   lambda_alpha = lambda,
-                                   max_it_vec = max_it_vec,
-                                   stepmax_nlm = stepmax_nlm) # returns matrix
+    fit_mat <- fitting_func_normal(
+      x1 = x1,
+      x2 = x2,
+      y = y,
+      optimizer = optimizer,
+      epsilon_1 = epsilon_1,
+      epsilon_T = epsilon_T,
+      steps_T = steps_T,
+      lambda_beta = lambda,
+      lambda_alpha = lambda,
+      max_it_vec = max_it_vec,
+      stepmax_nlm = stepmax_nlm
+    ) # returns matrix
     fit_out <- extract_theta_plike_val(fit_res = fit_mat)
 
     fit_out$theta <- c(fit_out$theta, "nu_0" = NA) # include NA for nu_0
@@ -224,7 +232,6 @@ smoothic <- function(formula,
     kappa <- NA # needed for output of function
     tau <- NA
     kappa_omega <- NA
-
   } else if (family != "old_normal") {
     # Inputs ----
     fix_kappa_lgl <- FALSE # assume not supplied so will be estimated (not fixed)
@@ -240,8 +247,8 @@ smoothic <- function(formula,
       kappa <- NA # if not fixing, then set to NA to be estimated
     }
 
-    if(!missing(tau)) {
-      if(!(tau >= 0)) {
+    if (!missing(tau)) {
+      if (!(tau >= 0)) {
         stop("Error: tau must be positive")
       }
     }
@@ -259,7 +266,7 @@ smoothic <- function(formula,
     if (family == "normal") { # fix kappa to 2 if family == "normal" # new normal
       kappa <- 2
       fix_kappa_lgl <- TRUE
-      tau = 0 # tau = 0 for normal distribution, tau only required for absolute value when kappa != 2
+      tau <- 0 # tau = 0 for normal distribution, tau only required for absolute value when kappa != 2
     }
 
     kappa_omega <- 0.2
@@ -299,13 +306,15 @@ smoothic <- function(formula,
 
   # Get standard errors ----
   if (family == "old_normal") {
-    info_list_normal <- basic_information_matrices(theta = theta_scale[-length(theta_scale)], # remove nu_0
-                                                   x1 = x1,
-                                                   x2 = x2,
-                                                   y = y,
-                                                   lambda_beta = lambda,
-                                                   lambda_alpha = lambda,
-                                                   epsilon = epsilon_T)
+    info_list_normal <- basic_information_matrices(
+      theta = theta_scale[-length(theta_scale)], # remove nu_0
+      x1 = x1,
+      x2 = x2,
+      y = y,
+      lambda_beta = lambda,
+      lambda_alpha = lambda,
+      epsilon = epsilon_T
+    )
     see_scale_normal <- c(get_see_normal(info_list_normal), NA) # NA for nu_0
     see <- see_scale_normal / x_sd_theta
     see[zero_pos_final] <- 0 # set to zero
@@ -427,7 +436,7 @@ summary.smoothic <- function(object, ...) {
 
   coefmat <- cbind(
     Estimate = coefficients,
-    SEE = see,
+    SE = see,
     Z = zval,
     Pvalue = pval
   )
@@ -437,6 +446,7 @@ summary.smoothic <- function(object, ...) {
     model = object$model,
     coefmat = coefmat,
     plike = unname(object$plike),
+    kappa = object$kappa,
     call = object$call
   )
   class(out) <- "summary.smoothic"
@@ -473,7 +483,7 @@ print.smoothic <- function(x, ...) {
 
 # print.summary.smoothic --------------------------------------------------
 #' @aliases print.summary.smoothic
-#' @importFrom stats printCoefmat
+#' @importFrom stats symnum
 #' @export
 print.summary.smoothic <- function(x, ...) {
   cat("Call:\n")
@@ -485,10 +495,66 @@ print.summary.smoothic <- function(x, ...) {
 
   kappa_lgl <- ifelse(x$family == "sgnd", "yes_kappa", "no_kappa")
 
-  switch(kappa_lgl,
+  # split coefmat into location, scale and shape
+  names_coefmat <- row.names(x$coefmat)
+  loc_ind <- grep("_beta", names_coefmat)
+  scale_ind <- grep("alpha", names_coefmat)
+  shape_ind <- grep("nu_0", names_coefmat)
+
+  coefmat_loc <- x$coefmat[loc_ind, ]
+
+  if (x$model == "mpr") {
+    coefmat_scale <- x$coefmat[scale_ind, ]
+  } else if (x$model == "spr") {
+    coefmat_scale <- matrix(x$coefmat[shape_ind, ], nrow = 1) # if scale constant returns numeric, so need to convert to matrix
+    rownames(coefmat_scale) <- "intercept_0_alpha"
+    colnames(coefmat_scale) <- colnames(coefmat_loc)
+  }
+
+  coefmat_shape <- matrix(x$coefmat[shape_ind, ], nrow = 1)
+  rownames(coefmat_shape) <- "intercept_0_nu   "
+  colnames(coefmat_shape) <- colnames(coefmat_loc)
+
+
+  switch(kappa_lgl, # if shape is estimated, then include nu, kappa in the output
     yes_kappa = {
       cat("\nCoefficients:\n")
-      printCoefmat(x$coefmat,
+      cat("\n")
+      cat("Location:\n")
+      printCoefmat_MON(coefmat_loc, # print the location
+        cs.ind = 1:2,
+        tst.ind = 3,
+        P.values = TRUE,
+        has.Pvalue = TRUE,
+        signif.legend = FALSE,
+        na.print = "0" # change NA to 0 for printing
+      )
+
+      cat("\n")
+      cat("Scale:\n")
+      printCoefmat_MON(coefmat_scale, # print the scale
+        cs.ind = 1:2,
+        tst.ind = 3,
+        P.values = TRUE,
+        has.Pvalue = TRUE,
+        signif.legend = FALSE,
+        na.print = "0" # change NA to 0 for printing
+      )
+
+      cat("\n")
+      cat("Shape:\n")
+      printCoefmat_MON(coefmat_shape, # print the shape
+        cs.ind = 1:2,
+        tst.ind = 3,
+        P.values = TRUE,
+        has.Pvalue = TRUE,
+        signif.legend = FALSE,
+        na.print = "0" # change NA to 0 for printing
+      )
+
+      # print signif stars
+      cat("\n")
+      printCoefmat_MON_stars(x$coefmat, # overall legend, just the stars
         cs.ind = 1:2,
         tst.ind = 3,
         P.values = TRUE,
@@ -499,7 +565,30 @@ print.summary.smoothic <- function(x, ...) {
     },
     no_kappa = {
       cat("\nCoefficients:\n")
-      printCoefmat(x$coefmat[-nrow(x$coefmat), ], # remove nu_0
+      cat("\n")
+      cat("Location:\n")
+      printCoefmat_MON(coefmat_loc,
+        cs.ind = 1:2,
+        tst.ind = 3,
+        P.values = TRUE,
+        has.Pvalue = TRUE,
+        signif.legend = FALSE,
+        na.print = "0" # change NA to 0 for printing
+      )
+
+      cat("\n")
+      cat("Scale:\n")
+      printCoefmat_MON(coefmat_scale,
+        cs.ind = 1:2,
+        tst.ind = 3,
+        P.values = TRUE,
+        has.Pvalue = TRUE,
+        signif.legend = FALSE,
+        na.print = "0" # change NA to 0 for printing
+      )
+      cat("\n")
+      # print signif stars
+      printCoefmat_MON_stars(x$coefmat[-nrow(x$coefmat), ], # overall legend, remove nu_0
         cs.ind = 1:2,
         tst.ind = 3,
         P.values = TRUE,
@@ -509,8 +598,17 @@ print.summary.smoothic <- function(x, ...) {
       )
     }
   )
+  cat("\n")
+  if (kappa_lgl == "yes_kappa") {
+    cat("Kappa Estimate:\n")
+    print(x$kappa)
+  }
+
   cat("Penalized Likelihood:\n")
   print(x$plike) # BIC or AIC = -2*plike
+
+  cat("IC Value:\n")
+  print(-2 * x$plike) # BIC or AIC = -2*plike
 }
 
 # predict.smoothic --------------------------------------------------------
@@ -545,8 +643,10 @@ print.summary.smoothic <- function(x, ...) {
 #' @export
 predict.smoothic <- function(object,
                              newdata,
-                             ...){
-  if (!inherits(object, "smoothic")) {stop("Error: object should have 'smoothic' class")}
+                             ...) {
+  if (!inherits(object, "smoothic")) {
+    stop("Error: object should have 'smoothic' class")
+  }
 
   if (missing(newdata)) {
     new_x <- object$x # no intercept (matches the formula from the original fit)
@@ -554,13 +654,12 @@ predict.smoothic <- function(object,
 
   colnames_x <- colnames(object$x)
 
-  if(!missing(newdata)) {
-
+  if (!missing(newdata)) {
     if (!(class(newdata)[1] %in% c("matrix", "data.frame"))) {
       stop("Error: newdata should be a matrix or data frame")
     }
 
-    newdata_x <- model.matrix(as.formula(paste0("~ ", as.character(object$call$formula)[[3]])), data = newdata)[,-1] # remove column of 1s
+    newdata_x <- model.matrix(as.formula(paste0("~ ", as.character(object$call$formula)[[3]])), data = newdata)[, -1] # remove column of 1s
 
     paste0("~ ", as.character(object$call$formula)[[3]])
 
@@ -581,11 +680,11 @@ predict.smoothic <- function(object,
   if (object$model == "mpr") {
     theta_final <- object$coefficients
   } else if (object$model == "spr") {
-    theta_final <- c(object$coefficients[1:(p+2)], rep(0, p), object$coefficients[p+3])
+    theta_final <- c(object$coefficients[1:(p + 2)], rep(0, p), object$coefficients[p + 3])
   }
 
-  theta_beta <- theta_final[1:(p+1)]
-  theta_alpha <- theta_final[(p+2):((2*p) + 2)]
+  theta_beta <- theta_final[1:(p + 1)]
+  theta_alpha <- theta_final[(p + 2):((2 * p) + 2)]
 
   # predict mu
   location_pred <- new_x_mat %*% theta_beta
@@ -594,8 +693,10 @@ predict.smoothic <- function(object,
   scale_pred <- sqrt(exp(new_x_mat %*% theta_alpha))
 
   # combine
-  out_mat <- cbind(location_pred,
-                   scale_pred)
+  out_mat <- cbind(
+    location_pred,
+    scale_pred
+  )
   colnames(out_mat) <- c("mu", "s")
 
   out_mat
@@ -606,16 +707,24 @@ predict.smoothic <- function(object,
 #'
 #' @description This function plots the model-based conditional density curves for
 #' different effect combinations. For example, take a particular covariate that is selected
-#' in the final model. The other selected covariates are fixed at their median values and then
-#' the plotted red and blue densities correspond to the modification of the chosen
-#' covariate as "low" (Q1, first quartile) and "high" (Q3, third quartile).
+#' in the final model. The other selected covariates are fixed at their median values by default
+#' (see \code{covariate_fix} to fix at other values) and then the plotted red and blue densities
+#' correspond to the modification of the chosen covariate as \dQuote{low} (25th quantile by default) and
+#' \dQuote{high} (75th quantile by default).
 #'
 #' @param obj An object of class \dQuote{\code{smoothic}} which is the result
 #' of a call to \code{\link{smoothic}}.
 #' @param what The covariate effects to be plotted, default is \code{what = "all"}. The user
 #' may supply a vector of covariate names to be plotted (only covariates selected in the final
-#' model can be plotted). Additionally, a "baseline" or "average" individual can be plotted by
-#' supplying \code{what = "median"}.
+#' model can be plotted).
+#' @param show_average_indiv Should a \dQuote{baseline} or \dQuote{average} individual be shown,
+#' default is \code{show_average_indiv = TRUE}. If \code{show_average_indiv = FALSE} then this
+#' is not shown.
+#' @param p The probabilities given to the \code{\link{quantile}} function. This corresponds to the plotted
+#' red and blue density curves where the chosen covariate is modified as \dQuote{low} and \dQuote{high}.
+#' The default is \code{p = c(0.25, 0.75)} to show the 25th and 75th quantiles.
+#' @param covariate_fix Optional values to fix the covariates at that are chosen in the final model. When
+#' not supplied, the covariates are fixed at their median values. See the example for more detail.
 #' @param density_range Optional range for which the density curves should be plotted.
 #'
 #' @return A plot of the conditional density curves.
@@ -633,18 +742,54 @@ predict.smoothic <- function(object,
 #' )
 #' plot_effects(results)
 #'
+#' # Only plot gastemp and gaspres
+#' # Do not show the average individual plot
+#' # Plot the lower and upper density curves using 10th quantile (lower) and 90th quantile (upper)
+#' # Fix violent to its violent to 820 and funding to 40
+#'
+#' plot_effects(results,
+#'              what = c("gastemp", "gaspres"),
+#'              show_average_indiv = FALSE,
+#'              p = c(0.1, 0.9),
+#'              covariate_fix = c("gastemp" = 70,
+#'                                "gaspres" = 4))
+#'
+#' # The curves for the gastemp variable are computed by fixing gaspres = 4 (as is specified
+#' # in the input). The remaining variables that are not specified in covariate_fix are fixed
+#' # to their median values (i.e., tanktemp is fixed at its median). gastemp is then modified
+#' # to be low (10th quantile) and high (90th quantile), as specified by p in the function.
+#'
 #' @import ggplot2
 #' @import dplyr
 #' @import tidyr
 #' @import purrr
 #' @import tibble
+#' @import toOrdinal
 #' @importFrom rlang .data
 #' @importFrom data.table rbindlist
 #'
 #' @export
 plot_effects <- function(obj,
                          what = "all",
+                         show_average_indiv = TRUE, # show the average individual?
+                         p = c(0.25, 0.75), # quantiles to be plotted
+                         covariate_fix, # specific values of the covariate densities (named vector)
                          density_range) {
+  quantile_values <- p
+
+  if (length(quantile_values) != 2) {
+    stop("Error: p must be length 2 (lower and upper quantile values)")
+  }
+
+  if (any(quantile_values > 1) | any(quantile_values < 0)) {
+    stop("Error: values of p must be between 0 and 1")
+  }
+
+  if (quantile_values[1] > quantile_values[2]) {
+    stop("Error: the first element of p is the should be less than the second element of p")
+  }
+
+
   fit_obj <- obj
   n <- length(fit_obj$y)
   p <- ncol(fit_obj$x) # not including intercept
@@ -653,7 +798,7 @@ plot_effects <- function(obj,
   if (fit_obj$model == "mpr") {
     theta_final <- fit_obj$coefficients
   } else if (fit_obj$model == "spr") {
-    theta_final <- c(fit_obj$coefficients[1:(p+2)], rep(0, p), fit_obj$coefficients[p+3])
+    theta_final <- c(fit_obj$coefficients[1:(p + 2)], rep(0, p), fit_obj$coefficients[p + 3])
   }
 
   if (is.null(colnames(fit_obj$x))) {
@@ -662,57 +807,11 @@ plot_effects <- function(obj,
   }
 
   names_coef_labels <- colnames(fit_obj$x)
-  names_coef_labels_theta <- c("inter", names_coef_labels,
-                               "inter", names_coef_labels,
-                               "inter")
-
-  # Any binary
-  bin_unique <- as.data.frame(fit_obj$x) %>%
-    map_dbl(~ length(unique(.x)))
-
-  bin_pos <- which(bin_unique == 2)
-
-  # Response value
-  response_val <- as.character(fit_obj$call$formula[[2]])
-
-  # Build dataset with response included (no intercept columns)
-  dataset_raw <- cbind(fit_obj$x, fit_obj$y) %>%
-    as_tibble(.name_repair = "minimal")
-  colnames(dataset_raw)[p + 1] <- response_val
-
-  # Calculate
-  levels_summary <- c("median", "Q1", "Q3")
-  levels_quant <- c("Q1", "Q3")
-  names_coef_labels <- colnames(dataset_raw)[-(p + 1)]
-
-
-  df_summary <- dataset_raw %>%
-    reframe(across(everything(), ~ c(
-      median(.),
-      quantile(., probs = c(0.25, 0.75))
-    ))) %>%
-    add_column(
-      typee = factor(levels_summary, levels = levels_summary),
-      .before = 1
-    ) %>%
-    dplyr::select(-all_of(response_val))
-
-  # Change binary
-  for (i in bin_pos) {
-    df_summary[,i+1] <- c(Mode_calc(unlist(dataset_raw[,i])),
-                          min(unlist(dataset_raw[,i])),
-                          max(unlist(dataset_raw[,i])))
-  }
-
-  df_summary_t <- df_summary %>%
-    pivot_longer(-.data$typee,
-                 names_to = "coeff"
-    ) %>%
-    pivot_wider(
-      names_from = .data$typee,
-      values_from = .data$value
-    ) %>%
-    mutate(coeff = factor(.data$coeff, levels = names_coef_labels))
+  names_coef_labels_theta <- c(
+    "inter", names_coef_labels,
+    "inter", names_coef_labels,
+    "inter"
+  )
 
   # Estimates (theta)
   names_coef_keep <- theta_final %>%
@@ -728,18 +827,144 @@ plot_effects <- function(obj,
     pull(.data$coeff) %>%
     unique()
 
+  # Response value
+  response_val <- as.character(fit_obj$call$formula[[2]])
+
+  # Build dataset with response included (no intercept columns)
+  dataset_raw <- cbind(fit_obj$x, fit_obj$y) %>%
+    as_tibble(.name_repair = "minimal")
+  colnames(dataset_raw)[p + 1] <- response_val
+
+  # Calculate
+  levels_summary <- c("average", "lower", "upper")
+  levels_quant <- c("lower", "upper")
+  names_coef_labels <- colnames(dataset_raw)[-(p + 1)]
+
   names_coef_response_keep <- c("response", names_coef_keep)
   levels_response_quant <- c("response", levels_quant)
 
+  # What is to be plotted
+  if ("all" %in% what) {
+    coef_plot_names <- names_coef_keep
+  } else if (any(!(what %in% names_coef_keep))) {
+    stop("Error: please choose a variable that is selected in the model")
+  } else {
+    coef_plot_names <- what
+  }
+
+  if (show_average_indiv == TRUE) {
+    coef_plot_names <- c("response", coef_plot_names)
+  }
+
+  # Any binary
+  bin_unique <- as.data.frame(fit_obj$x) %>%
+    map_dbl(~ length(unique(.x)))
+
+  bin_pos <- which(bin_unique == 2)
+
+  # Values to fix the covariates to
+  if (missing(covariate_fix)) {
+    fix_row <- dataset_raw %>%
+      dplyr::select(-all_of(response_val)) %>%
+      reframe(across(everything(), ~ median(.))) %>% # use median values if vector of values not supplied
+      add_column(typee = factor("fix_value"), .before = 1)
+  } else if (!missing(covariate_fix)) {
+    if (!IsNamedVector(covariate_fix)) { # vector should have covariate names
+      stop("Error: covariate_fix should be a vector with variable names and numeric values")
+    }
+
+    covariate_fix_names <- names(covariate_fix)
+    # make sure supplied names are actual variable names
+    if (any(!(covariate_fix_names %in% names_coef_keep))) {
+      stop("Error: only the variables selected in the final model should appear in covariate_fix")
+    }
+
+    # make sure fix values are within the range of each variable
+    df_range <- dataset_raw %>%
+      select(all_of(covariate_fix_names)) %>%
+      reframe(across(everything(), ~ c(min(.), max(.))))
+
+    range_lgl <- map2_lgl(.x = covariate_fix,
+                      .y = df_range, ~ {
+                      lgl_val <- (.x >= .y[1]) & (.x <= .y[2])
+                      lgl_val
+                      })
+    if (any(range_lgl == FALSE)) {
+      stop("Error: the values of covariate_fix should be within the range of each variable")
+    }
+
+    # make the row of fixed values
+    fix_row <- dataset_raw %>%
+      dplyr::select(-all_of(response_val)) %>%
+      reframe(across(everything(), ~ median(.))) # use median values if vector of values not supplied
+
+    fix_row_vec <- fix_row %>%
+      unlist()
+
+    # if values supplied, then insert them
+    for (i in seq_along(covariate_fix)) {
+      name_now <- names(covariate_fix[i])
+
+      pos_now <- which(names(fix_row_vec) == name_now)
+
+      fix_row_vec[pos_now] <- covariate_fix[i]
+    }
+
+    fix_row <- as.matrix(fix_row)
+    fix_row[1,] <- fix_row_vec
+    fix_row <- as_tibble(as.data.frame(fix_row)) %>%
+      add_column(typee = factor("fix_value"), .before = 1) # tibble output
+  }
+
+  df_summary_1 <- dataset_raw %>%
+    reframe(across(everything(), ~ c(
+      median(.),
+      quantile(., probs = quantile_values) # input p
+    ))) %>%
+    add_column(
+      typee = factor(levels_summary, levels = levels_summary),
+      .before = 1
+    ) %>%
+    dplyr::select(-all_of(response_val))
+
+  df_summary <- bind_rows(df_summary_1,
+                          fix_row)
+
+  # Change binary
+  for (i in bin_pos) {
+    df_summary[, i + 1] <- c(
+      Mode_calc(unlist(dataset_raw[, i])),
+      min(unlist(dataset_raw[, i])),
+      max(unlist(dataset_raw[, i])),
+      Mode_calc(unlist(dataset_raw[, i])) # fixed value
+    )
+  }
+
+  df_summary_t <- df_summary %>%
+    pivot_longer(-.data$typee,
+      names_to = "coeff"
+    ) %>%
+    pivot_wider(
+      names_from = .data$typee,
+      values_from = .data$value
+    ) %>%
+    mutate(coeff = factor(.data$coeff, levels = names_coef_labels))
+
   df_average_indiv <- df_summary %>%
-    filter(.data$typee == "median") %>%
-    add_column(inter = 1,
-               .before = 2) %>%
-    add_column(coeff = "response",
-               .before = 1) %>%
+    filter(.data$typee == "average") %>%
+    add_column(
+      inter = 1,
+      .before = 2
+    ) %>%
+    add_column(
+      coeff = "response",
+      .before = 1
+    ) %>%
     dplyr::select(-.data$typee) %>%
-    add_column(typee = "response",
-               .after = 1)
+    add_column(
+      typee = "response",
+      .after = 1
+    )
 
   df_dist_est_prep <- names_coef_keep %>%
     map(~ {
@@ -747,16 +972,16 @@ plot_effects <- function(obj,
 
       baseline <- df_summary_t %>%
         filter(.data$coeff == coef_now) %>%
-        dplyr::select(.data$Q1, .data$Q3) %>%
+        dplyr::select(.data$lower, .data$upper) %>%
         unlist()
 
-      mean_vec <- df_summary %>%
-        filter(.data$typee == "median") %>%
+      fix_vec <- df_summary %>%
+        filter(.data$typee == "fix_value") %>% # values that are specified, or else median if not specified
         dplyr::select(-.data$typee)
 
       new_df <- rbind(
-        mean_vec,
-        mean_vec
+        fix_vec,
+        fix_vec
       )
       new_df[, which(colnames(new_df) == coef_now)] <- baseline
       new_df %>%
@@ -774,12 +999,20 @@ plot_effects <- function(obj,
       .before = 3
     )
 
-  df_dist_est <- bind_rows(df_average_indiv,
-                           df_dist_est_1) %>%
+  df_dist_est <- bind_rows(
+    df_average_indiv,
+    df_dist_est_1
+  ) %>%
     mutate(
       coeff = factor(.data$coeff, levels = names_coef_response_keep),
       typee = factor(.data$typee, levels = levels_response_quant)
     )
+  # return dist_est in final object so can make sure everything ok
+  df_dist_est_out <- df_dist_est %>%
+    dplyr::select(.data$coeff, .data$typee, all_of(names_coef_keep)) %>%
+    dplyr::filter(.data$coeff %in% coef_plot_names) %>%
+    mutate(coeff = recode_factor(.data$coeff, "response" = "average"),
+           typee = recode_factor(.data$typee, "response" = "average"))
 
   df_dist_est_mat <- df_dist_est %>%
     dplyr::select(-c(.data$coeff, .data$typee)) %>%
@@ -787,7 +1020,7 @@ plot_effects <- function(obj,
 
   # Beta and Alpha
   theta_final_beta <- theta_final[1:(p + 1)]
-  theta_final_alpha <- theta_final[(p + 2): ((2*p) + 2)] # will be zeros if spr
+  theta_final_alpha <- theta_final[(p + 2):((2 * p) + 2)] # will be zeros if spr
   theta_final_nu <- theta_final[(2 * p) + 3]
 
   mu_i_vec <- as.numeric(df_dist_est_mat %*% theta_final_beta)
@@ -800,9 +1033,11 @@ plot_effects <- function(obj,
   names_dist_est <- split(names_dist_est_1, seq(1:nrow(names_dist_est_1))) %>%
     map(unlist)
 
-  mu_s_list <- map2(.x = mu_i_vec,
-                    .y = s_i_vec,
-                    ~ c(.x, .y))
+  mu_s_list <- map2(
+    .x = mu_i_vec,
+    .y = s_i_vec,
+    ~ c(.x, .y)
+  )
 
   # Range of density plot
   if (!missing(density_range)) {
@@ -813,91 +1048,109 @@ plot_effects <- function(obj,
 
   df_sgnd_1 <- mu_s_list %>%
     map(~ {
-      tibble(x = x_seq,
-             y = dgndnorm(x = x_seq, mu = .x[1], s = .x[2], kappa = kappa_const, tau = fit_obj$tau))
+      tibble(
+        x = x_seq,
+        y = dgndnorm(x = x_seq, mu = .x[1], s = .x[2], kappa = kappa_const, tau = fit_obj$tau)
+      )
     })
-  df_sgnd <-  map2(.x = df_sgnd_1, .y = names_dist_est, ~ {
+  df_sgnd <- map2(.x = df_sgnd_1, .y = names_dist_est, ~ {
     .x %>%
-      add_column(coeff = .y[1],
-                 typee = .y[2],
-                 .before = 1)
+      add_column(
+        coeff = .y[1],
+        typee = .y[2],
+        .before = 1
+      )
   }) %>%
     data.table::rbindlist() %>%
-    mutate(coeff = factor(.data$coeff, levels = names_coef_response_keep),
-           typee = factor(.data$typee, levels = levels_response_quant))
+    mutate(
+      coeff = factor(.data$coeff, levels = names_coef_response_keep),
+      typee = factor(.data$typee, levels = levels_response_quant)
+    )
 
-  col_pal_typee <- c("black",
-                     "#E41A1C", # red
-                     "#0072B2") # blue
-  names(col_pal_typee) <- levels_response_quant
-
-  fill_pal_typee <- c("NA",
-                      "#E41A1C", # red
-                      "#0072B2") # blue
-  names(fill_pal_typee) <- levels_response_quant
-
-  labels_facets <- c("median", names_coef_keep)
+  labels_facets <- c("average", names_coef_keep)
   names(labels_facets) <- names_coef_response_keep
 
-  names_coef_input <- c("median", names_coef_keep)
+  names_coef_input <- c("average", names_coef_keep)
 
-  if ("all" %in% what) {
-    coef_plot_names <- names_coef_response_keep
-  } else if (any(!(what %in% names_coef_input))) {
-    stop("Error: please choose a variable that is selected in the model, or 'median' for an average individual")
-  } else {
-    coef_plot_names <- what
-    coef_plot_names[which(coef_plot_names == "median")] <- "response"
-  }
+  # label quantile values according to p input vector (lower, upper)
+  levels_resquant_p <- c("response", quantile_values)
+  names(levels_resquant_p) <- c("response", levels_quant)
+
+  levels_quant_p <- levels_resquant_p[2:3]
+
+  col_pal_typee <- c(
+    "black",
+    "#E41A1C", # red
+    "#0072B2"
+  ) # blue
+  names(col_pal_typee) <- levels_resquant_p
+
+  fill_pal_typee <- c(
+    "NA",
+    "#E41A1C", # red
+    "#0072B2"
+  ) # blue
+  names(fill_pal_typee) <- levels_resquant_p
+
+  labels_typee <- toOrdinal::toOrdinal(quantile_values * 100) # get 25th etc
+  names(labels_typee) <- levels_quant_p
 
   # Remove tail values less that 1e-5
   df_sgnd_rough <- df_sgnd %>%
     mutate(y_rough = ifelse(.data$y < 1e-5, NA, .data$y)) %>%
     filter(.data$coeff %in% coef_plot_names) %>%
-    mutate(coeff = factor(.data$coeff, levels = coef_plot_names))
+    mutate(coeff = factor(.data$coeff, levels = coef_plot_names)) %>%
+    mutate(typee = recode_factor(.data$typee, !!!levels_resquant_p))
 
 
   fig_effects <- df_sgnd_rough %>%
     filter(!is.na(.data$y_rough)) %>%
-    ggplot(aes(x = .data$x,
-               y = .data$y_rough,
-               colour = .data$typee,
-               fill = .data$typee)) +
-    facet_wrap(~.data$coeff,
-               ncol = 1,
-               labeller = as_labeller(labels_facets)) +
+    ggplot(aes(
+      x = .data$x,
+      y = .data$y_rough,
+      colour = .data$typee,
+      fill = .data$typee
+    )) +
+    facet_wrap(~ .data$coeff,
+      ncol = 1,
+      labeller = as_labeller(labels_facets)
+    ) +
     geom_line() +
     geom_ribbon(aes(ymin = 0, ymax = .data$y_rough),
-                alpha = 0.25) +
-    scale_colour_manual(values = col_pal_typee, breaks = levels_quant) +
-    scale_fill_manual(values = fill_pal_typee, breaks = levels_quant) +
+      alpha = 0.25
+    ) +
+    scale_colour_manual(values = col_pal_typee, breaks = levels_quant_p, name = "Quantile", labels = labels_typee) +
+    scale_fill_manual(values = fill_pal_typee, breaks = levels_quant_p, name = "Quantile", labels = labels_typee) +
     theme_bw() +
     scale_x_continuous(expand = expansion(mult = c(0.01, 0.01))) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
-    theme(legend.title = element_blank(),
-          axis.title.y = element_blank(),
-          axis.text.y = element_blank(),
-          axis.ticks.y = element_blank()) +
+    theme(
+      # legend.title = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank()
+    ) +
     labs(x = response_val)
+  fig_effects$covariate_vals <- df_dist_est_out
   fig_effects
 }
 
 
 # plot_paths --------------------------------------------------------------
-#' @title Plot the epsilon-telescope coefficient paths
+#' @title Plot the \eqn{\epsilon}-telescope coefficient paths
 #'
 #' @description This function plots the standardized coefficient values with respect
-#' to the epsilon-telescope for the location (and dispersion) components.
+#' to the \eqn{\epsilon}-telescope for the location (and dispersion) components.
 #'
 #' @param obj An object of class \dQuote{\code{smoothic}} which is the result
 #' of a call to \code{\link{smoothic}}.
 #' @param log_scale_x Default is \code{log_scale_x = TRUE}, which uses a log scale
-#' on the x-axis. If \code{log_scale_x = FALSE}, then the raw values of the epsilon-telescope are plotted.
-#' @param log_scale_x_pretty Default is \code{log_scale_x_pretty = TRUE}, where the x-axis labels are "pretty".
+#' on the x-axis. If \code{log_scale_x = FALSE}, then the raw values of the \eqn{\epsilon}-telescope are plotted.
+#' @param log_scale_x_pretty Default is \code{log_scale_x_pretty = TRUE}, where the x-axis labels are \dQuote{pretty}.
 #' \code{epsilon_1} and \code{epsilon_T} must be a number to the power of 10 for this to apply.
 #' @param facet_scales Default is \code{facet_scales = "fixed"}. This is supplied to \code{\link{facet_wrap}}.
 #'
-#' @return A plot of the standardized coefficient values through the epsilon-telescope.
+#' @return A plot of the standardized coefficient values through the \eqn{\epsilon}-telescope.
 #'
 #' @author Meadhbh O'Neill
 #'
@@ -914,39 +1167,70 @@ plot_effects <- function(obj,
 #'
 #' @import ggplot2
 #' @import dplyr
+#' @import tibble
 #' @import tidyr
-#' @importFrom purrr map_dbl
+#' @importFrom purrr map_dbl map_chr
 #' @importFrom rlang .data
+#' @importFrom stringr str_split
 #'
 #' @export
 plot_paths <- function(obj,
                        log_scale_x = TRUE,
                        log_scale_x_pretty = TRUE,
                        facet_scales = "fixed") {
+  if (log_scale_x == FALSE & log_scale_x_pretty == TRUE) {
+    stop("Error: if log_scale_x = FALSE, then set log_scale_x_pretty = FALSE")
+  }
+
   fit_obj <- obj
   telescope_df <- fit_obj$telescope_df
 
-  if(nrow(telescope_df) < 20) {
+  if (nrow(telescope_df) < 10) {
     warning("Ensure an adequate number of steps_T are used")
   }
 
   names_coef_fit <- names(fit_obj$coefficients)
-  names_coef <- names_coef_fit[!names_coef_fit %in% c("intercept_0_beta",
-                                                      "intercept_0_alpha",
-                                                      "alpha_0",
-                                                      "nu_0")]
-  plot_df_prep <- telescope_df %>%
-    dplyr::select(.data$epsilon,
-                  contains(c("beta", "alpha")),
-                  -c("beta_0",
-                     "alpha_0")) %>%
+  names_coef <- names_coef_fit[!names_coef_fit %in% c(
+    "intercept_0_beta",
+    "intercept_0_alpha",
+    "alpha_0",
+    "nu_0"
+  )]
+  plot_df_prep_1 <- telescope_df %>%
+    dplyr::select(
+      .data$epsilon,
+      contains(c("beta", "alpha")),
+      -c(
+        "beta_0",
+        "alpha_0"
+      )
+    ) %>%
     rename_all(~ c("epsilon", names_coef)) %>%
     pivot_longer(-.data$epsilon) %>%
     mutate(type = case_when(
       grepl("_beta", .data$name) ~ "Location",
       grepl("_alpha", .data$name) ~ "Scale"
-    )) %>%
-    mutate(coeff = sub("_.*", "", .data$name)) # extract variable name
+    ))
+
+  plot_names_vec <- plot_df_prep_1$name
+  number_of_underscores <- lengths(regmatches(plot_names_vec, gregexpr("_", plot_names_vec)))
+
+  if (max(number_of_underscores) == 2) { # if only 2 underscores in name, then extract
+    plot_df_prep <- plot_df_prep_1 %>%
+      mutate(coeff = sub("_.*", "", .data$name)) %>%  # extract variable name
+      mutate(coeff = factor(.data$coeff, levels = colnames(obj$x)))
+  } else {
+    plot_names_list <- plot_names_vec %>%
+      stringr::str_split(pattern = "_")
+
+    plot_names_list_new <- map2_chr(.x = plot_names_list, .y = number_of_underscores, ~ {
+      paste(.x[1:(.y-1)], collapse = "_")
+    })
+
+    plot_df_prep <- plot_df_prep_1 %>%
+      tibble::add_column(coeff = plot_names_list_new) %>%
+      mutate(coeff = factor(.data$coeff, levels = colnames(obj$x)))
+  }
 
   if (log_scale_x == TRUE) {
     plot_df <- plot_df_prep %>%
@@ -958,15 +1242,24 @@ plot_paths <- function(obj,
     x_label <- "epsilon"
   }
 
+  if (log_scale_x == TRUE & log_scale_x_pretty == TRUE) {
+    x_label <- "epsilon"
+  }
+
   fig_paths <- plot_df %>%
-    ggplot(aes(x = .data$epsilon_plot,
-               y = .data$value,
-               colour = .data$coeff)) +
-    facet_wrap(~.data$type,
-               scales = facet_scales) +
+    ggplot(aes(
+      x = .data$epsilon_plot,
+      y = .data$value,
+      colour = .data$coeff
+    )) +
+    facet_wrap(~ .data$type,
+      scales = facet_scales
+    ) +
     geom_line() +
-    labs(y = "Standardized Coefficient Value",
-         x = x_label) +
+    labs(
+      y = "Standardized Coefficient Value",
+      x = x_label
+    ) +
     guides(colour = guide_legend("Variable")) +
     theme_bw()
 
@@ -987,17 +1280,19 @@ plot_paths <- function(obj,
 
     eps_tele_vec <- telescope_df$epsilon
     eps_vals <- eps_tele_vec[eps_choice %>%
-                               purrr::map_dbl(~ {
-                                 which(abs(eps_tele_vec - .x) == min(abs(eps_tele_vec - .x)))
-                               })]
+      purrr::map_dbl(~ {
+        which(abs(eps_tele_vec - .x) == min(abs(eps_tele_vec - .x)))
+      })]
     log_eps_vals <- log(eps_vals)
-    labels_eps <- paste0("c(",toString((paste0("'", log_eps_vals, "'=expression(", eps_choice_char,")" ))),")")
+    labels_eps <- paste0("c(", toString((paste0("'", log_eps_vals, "'=expression(", eps_choice_char, ")"))), ")")
     labels_eps <- eval(parse(text = labels_eps))
 
     fig_paths <- fig_paths +
-      scale_x_continuous(labels = labels_eps,
-                         breaks = log_eps_vals,
-                         expand = expansion(mult = c(0.02, 0.02)))
+      scale_x_continuous(
+        labels = labels_eps,
+        breaks = log_eps_vals,
+        expand = expansion(mult = c(0.02, 0.02))
+      )
   } else {
     fig_paths <- fig_paths +
       scale_x_continuous(expand = expansion(mult = c(0.02, 0.02)))
@@ -1006,6 +1301,10 @@ plot_paths <- function(obj,
   fig_paths
 }
 
+# Check that vector has names for plot_effects function
+IsNamedVector <- function(VECTOR) {
+  is.vector(VECTOR) & is.numeric(VECTOR) & !is.null(names(VECTOR)) & !any(is.na(names(VECTOR)))
+  }
 
 # Calculate mode
 Mode_calc <- function(x) {
@@ -1015,10 +1314,10 @@ Mode_calc <- function(x) {
 
 # Scientific notation for epsilon plotting pretty
 changeSciNot <- function(n) {
-  output <- format(n, scientific = TRUE) #Transforms the number into scientific notation even if small
-  output <- sub("e", "*10^", output) #Replace e with 10^
-  output <- sub("\\+0?", "", output) #Remove + symbol and leading zeros on expoent, if > 1
-  output <- sub("-0?", "-", output) #Leaves - symbol but removes leading zeros on expoent, if < 1
+  output <- format(n, scientific = TRUE) # Transforms the number into scientific notation even if small
+  output <- sub("e", "*10^", output) # Replace e with 10^
+  output <- sub("\\+0?", "", output) # Remove + symbol and leading zeros on expoent, if > 1
+  output <- sub("-0?", "-", output) # Leaves - symbol but removes leading zeros on expoent, if < 1
   output
 }
 
@@ -1299,12 +1598,14 @@ dgndnorm <- function(x,
     tau = tau
   )
 
-  density_gnd_approx(x = x,
-                     mu_loc = mu,
-                     s_scale = s,
-                     kappa_shape = kappa,
-                     tau = tau,
-                     c_tilde = c_tilde_val)
+  density_gnd_approx(
+    x = x,
+    mu_loc = mu,
+    s_scale = s,
+    kappa_shape = kappa,
+    tau = tau,
+    c_tilde = c_tilde_val
+  )
 }
 
 pgndnorm <- function(q,
@@ -2633,32 +2934,35 @@ nr_penalty <- function(theta,
 
   ## Information Matrix --
   ## Beta
-  Sigma_beta <- diag(c(
-    0,
-    (lambda_beta / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (beta1_p^2))) / ((beta1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p1 + 1,
-  ncol = p1 + 1
+  Sigma_beta <- diag(
+    c(
+      0,
+      (lambda_beta / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (beta1_p^2))) / ((beta1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p1 + 1,
+    ncol = p1 + 1
   )
   I_beta <- ((t(x1 * c(W_beta))) %*% x1) + Sigma_beta
 
   ## Alpha
-  Sigma_alpha <- diag(c(
-    0,
-    (lambda_alpha / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (alpha1_p^2))) / ((alpha1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p2 + 1,
-  ncol = p2 + 1
+  Sigma_alpha <- diag(
+    c(
+      0,
+      (lambda_alpha / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (alpha1_p^2))) / ((alpha1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p2 + 1,
+    ncol = p2 + 1
   )
   I_alpha <- ((t(x2 * c(W_alpha))) %*% x2) + Sigma_alpha
 
   ## Nu
-  Sigma_nu <- diag(c(
-    0,
-    (lambda_nu / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (nu1_p^2))) / ((nu1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p3 + 1,
-  ncol = p3 + 1
+  Sigma_nu <- diag(
+    c(
+      0,
+      (lambda_nu / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (nu1_p^2))) / ((nu1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p3 + 1,
+    ncol = p3 + 1
   )
   I_nu <- ((t(x3 * c(W_nu + W_c_tilde))) %*% x3) + Sigma_nu # addition of derivative of c_tilde
 
@@ -2932,32 +3236,35 @@ information_matrices_fullopt <- function(theta,
 
   # Penalized Observed Information Matrix ----
   ## Beta
-  Sigma_beta <- diag(c(
-    0,
-    (lambda_beta / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (beta1_p^2))) / ((beta1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p1 + 1,
-  ncol = p1 + 1
+  Sigma_beta <- diag(
+    c(
+      0,
+      (lambda_beta / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (beta1_p^2))) / ((beta1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p1 + 1,
+    ncol = p1 + 1
   )
   I_beta <- ((t(x1 * c(W_beta))) %*% x1) + Sigma_beta
 
   ## Alpha
-  Sigma_alpha <- diag(c(
-    0,
-    (lambda_alpha / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (alpha1_p^2))) / ((alpha1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p2 + 1,
-  ncol = p2 + 1
+  Sigma_alpha <- diag(
+    c(
+      0,
+      (lambda_alpha / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (alpha1_p^2))) / ((alpha1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p2 + 1,
+    ncol = p2 + 1
   )
   I_alpha <- ((t(x2 * c(W_alpha))) %*% x2) + Sigma_alpha
 
   ## Nu
-  Sigma_nu <- diag(c(
-    0,
-    (lambda_nu / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (nu1_p^2))) / ((nu1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p3 + 1,
-  ncol = p3 + 1
+  Sigma_nu <- diag(
+    c(
+      0,
+      (lambda_nu / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (nu1_p^2))) / ((nu1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p3 + 1,
+    ncol = p3 + 1
   )
   I_nu <- ((t(x3 * c(W_nu + W_c_tilde))) %*% x3) + Sigma_nu # addition of derivative of c_tilde
 
@@ -3014,36 +3321,38 @@ information_matrices_numDeriv <- function(theta,
                                           lambda_nu) {
   list_general <- list_family$general
 
-  observed_information_penalized <- tryCatch(-numDeriv::hessian(likelihood_penalized, # negative second deriv
-    theta,
-    x1 = x1,
-    x2 = x2,
-    x3 = x3,
-    y = y,
-    tau = tau,
-    epsilon = epsilon,
-    list_general = list_general,
-    method_c_tilde = method_c_tilde,
-    kappa_omega = kappa_omega,
-    lambda_beta = lambda_beta,
-    lambda_alpha = lambda_alpha,
-    lambda_nu = lambda_nu
-  ),
-  error = function(err) NA
+  observed_information_penalized <- tryCatch(
+    -numDeriv::hessian(likelihood_penalized, # negative second deriv
+      theta,
+      x1 = x1,
+      x2 = x2,
+      x3 = x3,
+      y = y,
+      tau = tau,
+      epsilon = epsilon,
+      list_general = list_general,
+      method_c_tilde = method_c_tilde,
+      kappa_omega = kappa_omega,
+      lambda_beta = lambda_beta,
+      lambda_alpha = lambda_alpha,
+      lambda_nu = lambda_nu
+    ),
+    error = function(err) NA
   )
 
-  observed_information_unpenalized <- tryCatch(-numDeriv::hessian(likelihood, # negative second deriv, unpen
-    theta,
-    x1 = x1,
-    x2 = x2,
-    x3 = x3,
-    y = y,
-    tau = tau,
-    list_general = list_general,
-    method_c_tilde = method_c_tilde,
-    kappa_omega = kappa_omega
-  ),
-  error = function(err) NA
+  observed_information_unpenalized <- tryCatch(
+    -numDeriv::hessian(likelihood, # negative second deriv, unpen
+      theta,
+      x1 = x1,
+      x2 = x2,
+      x3 = x3,
+      y = y,
+      tau = tau,
+      list_general = list_general,
+      method_c_tilde = method_c_tilde,
+      kappa_omega = kappa_omega
+    ),
+    error = function(err) NA
   )
 
   list(
@@ -3690,7 +3999,6 @@ fitting_func_base <- function(x1, # data should be scaled
 
 # Extract theta & plike_val -----------------------------------------------
 extract_theta_plike_val <- function(fit_res) {
-
   # last row
   row_n <- fit_res[nrow(fit_res), ]
   plike_val <- row_n$plike_val
@@ -3698,9 +4006,11 @@ extract_theta_plike_val <- function(fit_res) {
   colnames_now <- colnames(fit_res)
 
   # get positions of column names of coefficients
-  pos_extract <- c(grep("beta_", colnames_now),
-                   grep("alpha_", colnames_now),
-                   grep("nu_0", colnames_now))
+  pos_extract <- c(
+    grep("beta_", colnames_now),
+    grep("alpha_", colnames_now),
+    grep("nu_0", colnames_now)
+  )
   theta <- unlist(row_n[, pos_extract])
 
   list(
@@ -3861,23 +4171,25 @@ basic_nr_normal_penalty <- function(theta,
   ## Information Matrix
   # Beta
   W_beta <- (1 / phi)
-  Sigma_beta <- diag(c(
-    0,
-    (lambda_beta / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (beta1_p^2))) / ((beta1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p1 + 1,
-  ncol = p1 + 1
+  Sigma_beta <- diag(
+    c(
+      0,
+      (lambda_beta / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (beta1_p^2))) / ((beta1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p1 + 1,
+    ncol = p1 + 1
   )
   I_beta <- ((t(x1 * c(W_beta))) %*% x1) + Sigma_beta
 
   # Alpha
   W_alpha <- (1 / (2 * phi)) * ((y - mu)^2)
-  Sigma_alpha <- diag(c(
-    0,
-    (lambda_alpha / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (alpha1_p^2))) / ((alpha1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p2 + 1,
-  ncol = p2 + 1
+  Sigma_alpha <- diag(
+    c(
+      0,
+      (lambda_alpha / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (alpha1_p^2))) / ((alpha1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p2 + 1,
+    ncol = p2 + 1
   )
   I_alpha <- ((t(x2 * c(W_alpha))) %*% x2) + Sigma_alpha
 
@@ -3938,23 +4250,25 @@ basic_information_matrices <- function(theta,
   ## Penalized Observed Information Matrix
   # Beta
   W_beta <- (1 / phi)
-  Sigma_beta <- diag(c(
-    0,
-    (lambda_beta / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (beta1_p^2))) / ((beta1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p1 + 1,
-  ncol = p1 + 1
+  Sigma_beta <- diag(
+    c(
+      0,
+      (lambda_beta / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (beta1_p^2))) / ((beta1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p1 + 1,
+    ncol = p1 + 1
   )
   I_beta <- ((t(x1 * c(W_beta))) %*% x1) + Sigma_beta
 
   # Alpha
   W_alpha <- (1 / (2 * phi)) * ((y - mu)^2)
-  Sigma_alpha <- diag(c(
-    0,
-    (lambda_alpha / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (alpha1_p^2))) / ((alpha1_p^2 + epsilon^2)^3))
-  ),
-  nrow = p2 + 1,
-  ncol = p2 + 1
+  Sigma_alpha <- diag(
+    c(
+      0,
+      (lambda_alpha / 2) * (((2 * (epsilon^2)) * (epsilon^2 - 3 * (alpha1_p^2))) / ((alpha1_p^2 + epsilon^2)^3))
+    ),
+    nrow = p2 + 1,
+    ncol = p2 + 1
   )
   I_alpha <- ((t(x2 * c(W_alpha))) %*% x2) + Sigma_alpha
 
@@ -4003,8 +4317,8 @@ basic_telescope <- function(x1,
 
   t_initial_guess <- theta_init
   t_res_mat <- matrix(NA,
-                      nrow = length(eps_tele_vec),
-                      ncol = (length(t_initial_guess) + 5)
+    nrow = length(eps_tele_vec),
+    ncol = (length(t_initial_guess) + 5)
   )
   colnames(t_res_mat) <- c(
     "epsilon",
@@ -4060,8 +4374,8 @@ basic_telescope_nlm <- function(x1,
 
   t_initial_guess <- theta_init
   t_res_mat <- matrix(NA,
-                      nrow = length(eps_tele_vec),
-                      ncol = (length(t_initial_guess) + 5)
+    nrow = length(eps_tele_vec),
+    ncol = (length(t_initial_guess) + 5)
   )
   colnames(t_res_mat) <- c(
     "epsilon",
@@ -4083,36 +4397,36 @@ basic_telescope_nlm <- function(x1,
 
     pos <- i
 
-    switch (stepmax_lgl,
-            "yes_stepmax" = {
-              t_fit <- suppressWarnings({
-                nlm(basic_neg_penalizedlike, # nlm minimizes -> likelihood_penalized_neg
-                    p = t_initial_guess,
-                    x1 = x1,
-                    x2 = x2,
-                    y = y,
-                    lambda_beta = lambda_beta,
-                    lambda_alpha = lambda_alpha,
-                    epsilon = eps_val,
-                    iterlim = iter_val,
-                    stepmax = stepmax_nlm
-                )
-              })},
-            "no_stepmax" = {
-              t_fit <- suppressWarnings({
-                nlm(basic_neg_penalizedlike,
-                    p = t_initial_guess,
-                    x1 = x1,
-                    x2 = x2,
-                    y = y,
-                    lambda_beta = lambda_beta,
-                    lambda_alpha = lambda_alpha,
-                    epsilon = eps_val,
-                    iterlim = iter_val
-                )
-              })
-
-            }
+    switch(stepmax_lgl,
+      "yes_stepmax" = {
+        t_fit <- suppressWarnings({
+          nlm(basic_neg_penalizedlike, # nlm minimizes -> likelihood_penalized_neg
+            p = t_initial_guess,
+            x1 = x1,
+            x2 = x2,
+            y = y,
+            lambda_beta = lambda_beta,
+            lambda_alpha = lambda_alpha,
+            epsilon = eps_val,
+            iterlim = iter_val,
+            stepmax = stepmax_nlm
+          )
+        })
+      },
+      "no_stepmax" = {
+        t_fit <- suppressWarnings({
+          nlm(basic_neg_penalizedlike,
+            p = t_initial_guess,
+            x1 = x1,
+            x2 = x2,
+            y = y,
+            lambda_beta = lambda_beta,
+            lambda_alpha = lambda_alpha,
+            epsilon = eps_val,
+            iterlim = iter_val
+          )
+        })
+      }
     )
     t_initial_guess <- t_fit$estimate
     steps_full <- 0 # set to zero for nlm as not dealing with step halving
@@ -4150,33 +4464,314 @@ fitting_func_normal <- function(x1,
   )
   theta_init <- c(lm_coef_sig, rep(0, p2))
 
-  switch (optimizer,
-          "manual" = {
-            fit_out <- basic_telescope(x1 = x1,
-                                       x2 = x2,
-                                       y = y,
-                                       theta_init = theta_init,
-                                       eps_tele_vec = eps_tele_vec,
-                                       lambda_beta = lambda_beta,
-                                       lambda_alpha = lambda_alpha,
-                                       initial_step = initial_step,
-                                       max_step_it = max_step_it,
-                                       tol = tol,
-                                       max_it_vec = max_it_vec)
-          },
-          "nlm" = {
-            fit_out <- basic_telescope_nlm(x1 = x1,
-                                           x2 = x2,
-                                           y = y,
-                                           theta_init = theta_init,
-                                           eps_tele_vec = eps_tele_vec,
-                                           lambda_beta = lambda_beta,
-                                           lambda_alpha = lambda_alpha,
-                                           max_it_vec = max_it_vec,
-                                           stepmax_nlm = stepmax_nlm)
-          }
+  switch(optimizer,
+    "manual" = {
+      fit_out <- basic_telescope(
+        x1 = x1,
+        x2 = x2,
+        y = y,
+        theta_init = theta_init,
+        eps_tele_vec = eps_tele_vec,
+        lambda_beta = lambda_beta,
+        lambda_alpha = lambda_alpha,
+        initial_step = initial_step,
+        max_step_it = max_step_it,
+        tol = tol,
+        max_it_vec = max_it_vec
+      )
+    },
+    "nlm" = {
+      fit_out <- basic_telescope_nlm(
+        x1 = x1,
+        x2 = x2,
+        y = y,
+        theta_init = theta_init,
+        eps_tele_vec = eps_tele_vec,
+        lambda_beta = lambda_beta,
+        lambda_alpha = lambda_alpha,
+        max_it_vec = max_it_vec,
+        stepmax_nlm = stepmax_nlm
+      )
+    }
   )
   # extract_fit <- extract_theta_plike_val(fit_res = fit_out)
   # extract_fit
   fit_out
+}
+
+# My coefmat functions ----------------------------------------------------
+printCoefmat_MON <- function(x, digits = max(3L, getOption("digits") - 2L), signif.stars = getOption("show.signif.stars"),
+                             signif.legend = signif.stars, dig.tst = max(1L, min(
+                               5L,
+                               digits - 1L
+                             )), cs.ind = 1:k, tst.ind = k + 1, zap.ind = integer(),
+                             P.values = NULL, has.Pvalue = nc >= 4L && length(cn <- colnames(x)) &&
+                               substr(cn[nc], 1L, 3L) %in% c("Pr(", "p-v"), eps.Pvalue = .Machine$double.eps,
+                             na.print = "NA", quote = FALSE, right = TRUE, ...) {
+  if (is.null(d <- dim(x)) || length(d) != 2L) {
+    stop("'x' must be coefficient matrix/data frame")
+  }
+  nc <- d[2L]
+  if (is.null(P.values)) {
+    scp <- getOption("show.coef.Pvalues")
+    if (!is.logical(scp) || is.na(scp)) {
+      warning("option \"show.coef.Pvalues\" is invalid: assuming TRUE")
+      scp <- TRUE
+    }
+    P.values <- has.Pvalue && scp
+  } else if (P.values && !has.Pvalue) {
+    stop("'P.values' is TRUE, but 'has.Pvalue' is not")
+  }
+  if (has.Pvalue && !P.values) {
+    d <- dim(xm <- data.matrix(x[, -nc, drop = FALSE]))
+    nc <- nc - 1
+    has.Pvalue <- FALSE
+  } else {
+    xm <- data.matrix(x)
+  }
+  k <- nc - has.Pvalue - (if (missing(tst.ind)) {
+    1
+  } else {
+    length(tst.ind)
+  })
+  if (!missing(cs.ind) && length(cs.ind) > k) {
+    stop("wrong k / cs.ind")
+  }
+  Cf <- array("", dim = d, dimnames = dimnames(xm))
+  ok <- !(ina <- is.na(xm))
+  for (i in zap.ind) xm[, i] <- zapsmall(xm[, i], digits)
+  if (length(cs.ind)) {
+    acs <- abs(coef.se <- xm[, cs.ind, drop = FALSE])
+    if (any(ia <- is.finite(acs))) {
+      digmin <- 1 + if (length(acs <- acs[ia & acs !=
+        0])) {
+        floor(log10(range(acs[acs != 0], finite = TRUE)))
+      } else {
+        0
+      }
+      Cf[, cs.ind] <- format(round(coef.se, max(1L, digits -
+        digmin)), digits = digits)
+    }
+  }
+  if (length(tst.ind)) {
+    Cf[, tst.ind] <- format(round(xm[, tst.ind], digits = dig.tst),
+      digits = digits
+    )
+  }
+  if (any(r.ind <- !((1L:nc) %in% c(cs.ind, tst.ind, if (has.Pvalue) nc)))) {
+    for (i in which(r.ind)) Cf[, i] <- format(xm[, i], digits = digits)
+  }
+  ok[, tst.ind] <- FALSE
+  okP <- if (has.Pvalue) {
+    ok[, -nc]
+  } else {
+    ok
+  }
+  x1 <- Cf[okP]
+  dec <- getOption("OutDec")
+  if (dec != ".") {
+    x1 <- chartr(dec, ".", x1)
+  }
+  x0 <- (xm[okP] == 0) != (as.numeric(x1) == 0)
+  if (length(not.both.0 <- which(x0 & !is.na(x0)))) {
+    Cf[okP][not.both.0] <- format(xm[okP][not.both.0], digits = max(
+      1L,
+      digits - 1L
+    ))
+  }
+  if (any(ina)) {
+    Cf[ina] <- na.print
+  }
+  if (any(inan <- is.nan(xm))) {
+    Cf[inan] <- "NaN"
+  }
+  if (P.values) {
+    if (!is.logical(signif.stars) || is.na(signif.stars)) {
+      warning("option \"show.signif.stars\" is invalid: assuming TRUE")
+      signif.stars <- TRUE
+    }
+    if (any(okP <- ok[, nc])) {
+      pv <- as.vector(xm[, nc])
+      Cf[okP, nc] <- format.pval(pv[okP],
+        digits = dig.tst,
+        eps = eps.Pvalue
+      )
+      signif.stars <- signif.stars && any(pv[okP] < 0.1)
+      if (signif.stars) {
+        # MON
+        max_pv <- max(pv, na.rm = TRUE)
+        if (max_pv < 1) {
+          max_cut <- 1
+        } else {
+          max_cut <- ceiling(max_pv * 2) / 2
+        }
+
+        cutpoints_vec <- c(0, 0.001, 0.01, 0.05, 0.1, max_cut)
+
+        Signif <- stats::symnum(pv,
+          corr = FALSE, na = FALSE,
+          cutpoints = cutpoints_vec,
+          symbols = c("***", "**", "*", ".", " ")
+        )
+        Cf <- cbind(Cf, format(Signif))
+      }
+    } else {
+      signif.stars <- FALSE
+    }
+  } else {
+    signif.stars <- FALSE
+  }
+  print.default(Cf,
+    quote = quote, right = right, na.print = na.print,
+    ...
+  )
+  if (signif.stars && signif.legend) {
+    if ((w <- getOption("width")) < nchar(sleg <- attr(
+      Signif,
+      "legend"
+    ))) {
+      sleg <- strwrap(sleg, width = w - 2, prefix = "  ")
+    }
+    cat("---\nSignif. codes:  ", sleg, sep = "", fill = w +
+      4 + max(nchar(sleg, "bytes") - nchar(sleg)))
+  }
+  invisible(x)
+}
+
+printCoefmat_MON_stars <- function(x, digits = max(3L, getOption("digits") - 2L), signif.stars = getOption("show.signif.stars"),
+                                   signif.legend = signif.stars, dig.tst = max(1L, min(
+                                     5L,
+                                     digits - 1L
+                                   )), cs.ind = 1:k, tst.ind = k + 1, zap.ind = integer(),
+                                   P.values = NULL, has.Pvalue = nc >= 4L && length(cn <- colnames(x)) &&
+                                     substr(cn[nc], 1L, 3L) %in% c("Pr(", "p-v"), eps.Pvalue = .Machine$double.eps,
+                                   na.print = "NA", quote = FALSE, right = TRUE, ...) {
+  if (is.null(d <- dim(x)) || length(d) != 2L) {
+    stop("'x' must be coefficient matrix/data frame")
+  }
+  nc <- d[2L]
+  if (is.null(P.values)) {
+    scp <- getOption("show.coef.Pvalues")
+    if (!is.logical(scp) || is.na(scp)) {
+      warning("option \"show.coef.Pvalues\" is invalid: assuming TRUE")
+      scp <- TRUE
+    }
+    P.values <- has.Pvalue && scp
+  } else if (P.values && !has.Pvalue) {
+    stop("'P.values' is TRUE, but 'has.Pvalue' is not")
+  }
+  if (has.Pvalue && !P.values) {
+    d <- dim(xm <- data.matrix(x[, -nc, drop = FALSE]))
+    nc <- nc - 1
+    has.Pvalue <- FALSE
+  } else {
+    xm <- data.matrix(x)
+  }
+  k <- nc - has.Pvalue - (if (missing(tst.ind)) {
+    1
+  } else {
+    length(tst.ind)
+  })
+  if (!missing(cs.ind) && length(cs.ind) > k) {
+    stop("wrong k / cs.ind")
+  }
+  Cf <- array("", dim = d, dimnames = dimnames(xm))
+  ok <- !(ina <- is.na(xm))
+  for (i in zap.ind) xm[, i] <- zapsmall(xm[, i], digits)
+  if (length(cs.ind)) {
+    acs <- abs(coef.se <- xm[, cs.ind, drop = FALSE])
+    if (any(ia <- is.finite(acs))) {
+      digmin <- 1 + if (length(acs <- acs[ia & acs !=
+        0])) {
+        floor(log10(range(acs[acs != 0], finite = TRUE)))
+      } else {
+        0
+      }
+      Cf[, cs.ind] <- format(round(coef.se, max(1L, digits -
+        digmin)), digits = digits)
+    }
+  }
+  if (length(tst.ind)) {
+    Cf[, tst.ind] <- format(round(xm[, tst.ind], digits = dig.tst),
+      digits = digits
+    )
+  }
+  if (any(r.ind <- !((1L:nc) %in% c(cs.ind, tst.ind, if (has.Pvalue) nc)))) {
+    for (i in which(r.ind)) Cf[, i] <- format(xm[, i], digits = digits)
+  }
+  ok[, tst.ind] <- FALSE
+  okP <- if (has.Pvalue) {
+    ok[, -nc]
+  } else {
+    ok
+  }
+  x1 <- Cf[okP]
+  dec <- getOption("OutDec")
+  if (dec != ".") {
+    x1 <- chartr(dec, ".", x1)
+  }
+  x0 <- (xm[okP] == 0) != (as.numeric(x1) == 0)
+  if (length(not.both.0 <- which(x0 & !is.na(x0)))) {
+    Cf[okP][not.both.0] <- format(xm[okP][not.both.0], digits = max(
+      1L,
+      digits - 1L
+    ))
+  }
+  if (any(ina)) {
+    Cf[ina] <- na.print
+  }
+  if (any(inan <- is.nan(xm))) {
+    Cf[inan] <- "NaN"
+  }
+  if (P.values) {
+    if (!is.logical(signif.stars) || is.na(signif.stars)) {
+      warning("option \"show.signif.stars\" is invalid: assuming TRUE")
+      signif.stars <- TRUE
+    }
+    if (any(okP <- ok[, nc])) {
+      pv <- as.vector(xm[, nc])
+      Cf[okP, nc] <- format.pval(pv[okP],
+        digits = dig.tst,
+        eps = eps.Pvalue
+      )
+      signif.stars <- signif.stars && any(pv[okP] < 0.1)
+      if (signif.stars) {
+        # MON
+        max_pv <- max(pv, na.rm = TRUE)
+        if (max_pv < 1) {
+          max_cut <- 1
+        } else {
+          max_cut <- ceiling(max_pv * 2) / 2
+        }
+
+        cutpoints_vec <- c(0, 0.001, 0.01, 0.05, 0.1, max_cut)
+
+        Signif <- stats::symnum(pv,
+          corr = FALSE, na = FALSE,
+          cutpoints = cutpoints_vec,
+          symbols = c("***", "**", "*", ".", " ")
+        )
+        Cf <- cbind(Cf, format(Signif))
+      }
+    } else {
+      signif.stars <- FALSE
+    }
+  } else {
+    signif.stars <- FALSE
+  }
+  # print.default(Cf,
+  #               quote = quote, right = right, na.print = na.print,
+  #               ...
+  # )
+  if (signif.stars && signif.legend) {
+    if ((w <- getOption("width")) < nchar(sleg <- attr(
+      Signif,
+      "legend"
+    ))) {
+      sleg <- strwrap(sleg, width = w - 2, prefix = "  ")
+    }
+    cat("---\nSignif. codes:  ", sleg, sep = "", fill = w +
+      4 + max(nchar(sleg, "bytes") - nchar(sleg)))
+  }
+  invisible(x)
 }

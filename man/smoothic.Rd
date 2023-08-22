@@ -15,7 +15,6 @@ smoothic(
   steps_T = 100,
   zero_tol = 1e-05,
   max_it = 10000,
-  optimizer = "nlm",
   kappa,
   tau,
   max_it_vec,
@@ -30,36 +29,35 @@ with response on the left hand side and the model variables on the right hand si
 should be unstandardized.}
 
 \item{family}{The family of the model, default is \code{family = "sgnd"} for the
-"Smooth Generalized Distribution" where the shape parameter kappa is also
+"Smooth Generalized Normal Distribution" where the shape parameter kappa is also
 estimated. Classical regression with normally distributed errors is performed
 when \code{family = "normal"}. If \code{family = "laplace"}, this corresponds to
-a robust regression with errors from the Laplace distribution.}
+a robust regression with errors from a Laplace-like distribution. If \code{family = "laplace"},
+then the default value of \code{tau = 0.15}, which is used to approximate the absolute value
+in the Laplace density function.}
 
 \item{model}{The type of regression to be implemented, either \code{model = "mpr"}
-for multi-parameter regression, or \code{model = "spr"} for single parameter
-regression (i.e., classical normal linear regression). Defaults to \code{model="mpr"}.}
+for multiparameter regression (i.e., location and scale), or \code{model = "spr"} for single parameter
+regression (i.e., location only). Defaults to \code{model="mpr"}.}
 
 \item{lambda}{Value of penalty tuning parameter. Suggested values are
 \code{"log(n)"} and \code{"2"} for the BIC and AIC respectively. Defaults to
-\code{lambda ="log(n)"} for the BIC case.}
+\code{lambda ="log(n)"} for the BIC case. This is evaluated as an R expression, so it may
+be a number of some function of \code{n}.}
 
 \item{epsilon_1}{Starting value for \eqn{\epsilon}-telescope. Defaults to 10.}
 
 \item{epsilon_T}{Final value for \eqn{\epsilon}-telescope. Defaults to
 \code{1e-04}.}
 
-\item{steps_T}{Number of steps in \eqn{\epsilon}-telescope. Defaults to 100.}
+\item{steps_T}{Number of steps in \eqn{\epsilon}-telescope. Defaults to 100, must be
+greater than or equal to 10.}
 
 \item{zero_tol}{Coefficients below this value are treated as being zero.
 Defaults to \code{1e-05}.}
 
 \item{max_it}{Maximum number of iterations to be performed before the
 optimization is terminated. Defaults to \code{1e+04}.}
-
-\item{optimizer}{The optimization procedure to be used. Defaults to
-\code{optimizer = "nlm"}, where the \code{\link{nlm}} function from the
-\bold{stats} package is used. This tends to be more stable than the manually
- coded Newton-Raphson procedure that is used when \code{optimizer = "manual"}.}
 
 \item{kappa}{Optional user-supplied positive kappa value (> 0.2 to avoid
 computational issues) if \code{family = "sgnd"}. If supplied, the shape parameter
@@ -68,17 +66,19 @@ estimated from the data.}
 
 \item{tau}{Optional user-supplied positive smoothing parameter value in the
 "Smooth Generalized Normal Distribution" if \code{family = "sgnd"} or
-\code{family = "laplace"}. If not supplied, then \code{tau = "0.15"}.
-Smaller values of \code{tau} bring the approximation closer to the absolute value
-function, but this can cause the optimization to become unstable. Some issues with
-standard error calculation with smaller values of \code{tau} when using the Laplace
-distribution in the robust regression setting.}
+\code{family = "laplace"}. If not supplied then \code{tau = 0.15}. If \code{family = "normal"}
+then \code{tau = 0} is used. Smaller values of \code{tau} bring the approximation closer to the
+absolute value function, but this can cause the optimization to become unstable. Some issues with
+standard error calculation with smaller values of \code{tau} when using the Laplace distribution in
+the robust regression setting.}
 
-\item{max_it_vec}{Optional vector of length \code{steps_T} that contains the maximum number of iterations to be performed in each \eqn{\epsilon}-telescope
-step. If not supplied, \code{max_it} is the maximum number of iterations performed at each step.}
+\item{max_it_vec}{Optional vector of length \code{steps_T} that contains the maximum number of
+iterations to be performed in each \eqn{\epsilon}-telescope step. If not supplied, \code{max_it}
+is the maximum number of iterations performed for 10 steps and then the maximum number of iterations
+to be performed reduces to 10 for the remainder of the telescope.}
 
 \item{stepmax_nlm}{Optional maximum allowable scaled step length (positive scalar) to be passed to
-\code{\link{nlm}} if \code{optimizer = "nlm"}. If not supplied, default values in
+\code{\link{nlm}}. If not supplied, default values in
 \code{\link{nlm}} are used.}
 }
 \value{
@@ -93,8 +93,8 @@ A list with estimates and estimated standard errors.
 }
 \description{
 Implements the SIC \eqn{\epsilon}-telescope method, either using
-single or multi-parameter regression. Returns estimated coefficients, estimated
-standard errors (SEE) and the value of the penalized likelihood function.
+single or multiparameter regression. Returns estimated coefficients, estimated
+standard errors and the value of the penalized likelihood function.
 Note that the function will scale the predictors to have unit variance, however,
 the final estimates are converted back to their original scale.
 }
@@ -110,8 +110,8 @@ results <- smoothic(
 summary(results)
 }
 \references{
-O'Neill, M. and Burke, K. (2021) Variable Selection Using a Smooth
-Information Criterion for Multi-Parameter Regression Models. <arXiv:2110.02643>
+O'Neill, M. and Burke, K. (2023) Variable selection using a smooth information
+criterion for distributional regression models. <doi:10.1007/s11222-023-10204-8>
 
 O'Neill, M. and Burke, K. (2022) Robust Distributional Regression with
 Automatic Variable Selection. <arXiv:2212.07317>

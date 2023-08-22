@@ -25,6 +25,6 @@ plot_paths(fit)
 
 ## ---- fig.width=10, fig.height=8----------------------------------------------
 plot_effects(fit,
-             what = c("median", "ltax", "rm", "ldis"), # or "all" for all selected variables
+             what = c("ltax", "rm", "ldis"), # or "all" for all selected variables
              density_range = c(2.25, 3.75))
 
