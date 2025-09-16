@@ -1,4 +1,4 @@
-## ---- include = FALSE---------------------------------------------------------
+## ----include = FALSE----------------------------------------------------------
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
@@ -20,10 +20,10 @@ summary(fit)
 
 fit$kappa # shape estimate
 
-## ---- fig.width=10, fig.height=8----------------------------------------------
+## ----fig.width=10, fig.height=8-----------------------------------------------
 plot_paths(fit)
 
-## ---- fig.width=10, fig.height=8----------------------------------------------
+## ----fig.width=10, fig.height=8-----------------------------------------------
 plot_effects(fit,
              what = c("ltax", "rm", "ldis"), # or "all" for all selected variables
              density_range = c(2.25, 3.75))
